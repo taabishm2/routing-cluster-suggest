@@ -140,7 +140,7 @@ def main():
     source_count, destination_count = 2000, 2000
 
     cluster_count = 10
-    show_clusters = True
+    show_clusters = False
 
     if is_test_run:
         generate_random_sources(source_count)
