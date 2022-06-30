@@ -1,5 +1,6 @@
 import csv
 import random
+import time
 from collections import defaultdict
 
 import geopy.distance
@@ -85,8 +86,29 @@ def cluster(num_of_clusters, show_clusters):
     centers = kmeans.cluster_centers_
     labels = kmeans.predict(X[X.columns[1:3]])
 
+    cluster_output = open("output/clusters.csv", "w")
+    cluster_output_writer = csv.writer(cluster_output)
+    cluster_output_writer.writerow(["clusterName"])
+    for c in set(labels):
+        cluster_output_writer.writerow([c])
+    cluster_output.close()
+
+    cluster_def_output = open("output/cluster_definition.csv", "w")
+    cluster_def_output_writer = csv.writer(cluster_def_output)
+    cluster_def_output_writer.writerow(["clusterName", "locationName"])
+    for index, row in X.iterrows():
+        cluster_def_output_writer.writerow([row["cluster_label"], row['wh']])
+    cluster_def_output.close()
+
     X.plot.scatter(x='lon', y='lat', c=labels, s=5, cmap='gist_rainbow')
     plt.scatter(centers[:, 1], centers[:, 0], c='black', s=20, alpha=0.5)
+    plt.xlabel("longitude")
+    plt.ylabel("latitude")
+    plt.title("Warehouse-cluster distribution", fontsize=15)
+
+    for i, c in enumerate(centers):
+        plt.annotate(str(i), (c[1], c[0]))
+
     if show_clusters: plt.show()
     return X, centers
 
@@ -123,6 +145,13 @@ def get_area_cluster_mappings(cluster_data, centers):
 
     for x in pincode_cluster_avg_distance_map:
         pincode_cluster_map[x] = [c[0] for c in pincode_cluster_avg_distance_map[x]][:5]
+
+    mapping_output = open("output/area_cluster_mapping.csv", "w")
+    mapping_output_writer = csv.writer(mapping_output)
+    mapping_output_writer.writerow(["areaCodePrefix", "cluster1", "cluster2", "cluster3", "cluster4", "cluster5"])
+    for k in pincode_cluster_map: mapping_output_writer.writerow([k] + pincode_cluster_map[k])
+    mapping_output.close()
+
     return pincode_cluster_map
 
 
@@ -136,6 +165,8 @@ def get_pincode_coord_map():
 
 
 def main():
+    start_time = time.time()
+
     is_test_run = True
     source_count, destination_count = 2000, 2000
 
@@ -155,8 +186,7 @@ def main():
     print("Generating Mappings ...")
     mappings = get_area_cluster_mappings(cluster_data, centers)
 
-    for k in mappings: print(k, mappings[k])
-    print(len(mappings), "mappings generated")
+    print(len(mappings), "mappings generated in", time.time() - start_time, "sec")
 
 
 main()
