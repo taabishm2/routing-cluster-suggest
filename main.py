@@ -1,116 +1,138 @@
 import csv
 import random
 import time
+import itertools
 from collections import defaultdict
+from tqdm import tqdm
 
 import geopy.distance
 import matplotlib.pyplot as plt
 import pandas as pd
-import seaborn as sns
 from sklearn.cluster import KMeans
+from fastapi import FastAPI
 
-sns.set()
+app = FastAPI()
+
+
+@app.get("/")
+async def root():
+    return {"message": "Hello World"}
 
 
 # Test function to generate source pin-codes randomly
 def generate_random_sources(count):
-    dataset = open('data/geo_dataset.csv', 'r')
-    dataset_reader = csv.reader(dataset)
+    geo_dataset = open('data/geo_dataset.csv', 'r')
+    dataset_reader = csv.reader(geo_dataset)
 
-    rows = [(e[9], e[10]) for e in dataset_reader][1:]
-    picked_locs = random.sample(rows, count)
+    source_rows = [(row[9], row[10]) for row in dataset_reader][1:]
+    picked_locations = random.sample(source_rows, count)
 
     output_sources = open('data/source_pincodes.csv', 'w')
-    data_writer = csv.writer(output_sources)
+    output_sources_writer = csv.writer(output_sources)
 
-    data_writer.writerow(["wh", "lat", "lon"])
-    for idx, val in enumerate(picked_locs):
-        data_writer.writerow(["WH" + str(idx), val[0], val[1]])
+    output_sources_writer.writerow(["wh", "lat", "lon"])
+    for idx, val in enumerate(picked_locations):
+        output_sources_writer.writerow(["WH" + str(idx), val[0], val[1]])
     output_sources.close()
 
 
 # Test function to generate destination pin-codes randomly
 def generate_random_destinations(count):
-    dataset = open('data/geo_dataset.csv', 'r')
-    dataset_reader = csv.reader(dataset)
+    geo_dataset = open('data/geo_dataset.csv', 'r')
+    dataset_reader = csv.reader(geo_dataset)
 
-    rows = [(e[1], e[9], e[10]) for e in dataset_reader][1:]
-    picked_locs = random.sample(rows, count)
+    picked_locations = [(row[1], row[9], row[10]) for row in dataset_reader][1:]
+    picked_locations = random.sample(picked_locations, count)
 
     output_sources = open('data/destination_pincodes.csv', 'w')
-    data_writer = csv.writer(output_sources)
+    output_sources_writer = csv.writer(output_sources)
 
-    data_writer.writerow(["postalcode", "lat", "lon"])
-    for idx, val in enumerate(picked_locs):
-        data_writer.writerow([val[0], val[1], val[2]])
+    output_sources_writer.writerow(["postalcode", "lat", "lon"])
+    for idx, val in enumerate(picked_locations):
+        output_sources_writer.writerow([val[0], val[1], val[2]])
     output_sources.close()
 
 
 # Add locations in /uploads/sources.csv with format (warehouse_name, pincode)
-def generate_source_coords(pincode_coord_map):
-    upload_file = open('uploads/sources.csv')
-    uplaod_reader = csv.reader(upload_file)
+def generate_source_coordinates(pincode_coord_map):
+    uploaded_sources_file = open('uploads/sources.csv')
+    sources_file_reader = csv.reader(uploaded_sources_file)
 
-    output_sources = open('data/source_pincodes.csv', 'w')
-    data_writer = csv.writer(output_sources)
+    output_sources_file = open('data/source_pincodes.csv', 'w')
+    output_file_writer = csv.writer(output_sources_file)
 
-    data_writer.writerow(["wh", "lat", "lon"])
-    next(uplaod_reader, None)
-    for row in uplaod_reader:
-        data_writer.writerow([row[0], pincode_coord_map[row[1]][0], pincode_coord_map[row[1]][1]])
-    output_sources.close()
+    output_file_writer.writerow(["wh", "lat", "lon"])
+    next(sources_file_reader, None)
+    for row in sources_file_reader:
+        output_file_writer.writerow([row[0], pincode_coord_map[row[1]][0], pincode_coord_map[row[1]][1]])
+    output_sources_file.close()
 
 
 # Add serviceable pincodes in /uploads/serviceable.csv with format (pincode)
-def generate_destn_coords(pincode_coord_map):
-    upload_file = open('uploads/serviceable.csv')
-    uplaod_reader = csv.reader(upload_file)
+def generate_destination_coords(pincode_coord_map):
+    uploaded_destinations_file = open('uploads/serviceable.csv')
+    destinations_file_reader = csv.reader(uploaded_destinations_file)
 
-    output_sources = open('data/destination_pincodes.csv', 'w')
-    data_writer = csv.writer(output_sources)
+    output_destinations_file = open('data/destination_pincodes.csv', 'w')
+    destinations_file_writer = csv.writer(output_destinations_file)
 
-    data_writer.writerow(["postalcode", "lat", "lon"])
-    next(uplaod_reader, None)
-    for row in uplaod_reader:
-        data_writer.writerow([row[0], pincode_coord_map[row[0]][0], pincode_coord_map[row[0]][1]])
-    output_sources.close()
+    destinations_file_writer.writerow(["postalcode", "lat", "lon"])
+    next(destinations_file_reader, None)
+    for row in destinations_file_reader:
+        destinations_file_writer.writerow([row[0], pincode_coord_map[row[0]][0], pincode_coord_map[row[0]][1]])
+    output_destinations_file.close()
 
 
-def cluster(num_of_clusters, show_clusters):
+def cluster(cluster_count, show_cluster_graph):
     df = pd.read_csv('data/source_pincodes.csv')
-    X = df.loc[:, ['wh', 'lat', 'lon']]
+    source_pincode_df = df.loc[:, ['wh', 'lat', 'lon']]
 
-    kmeans = KMeans(n_clusters=num_of_clusters, init='k-means++')
-    kmeans.fit(X[X.columns[1:3]])
-    X['cluster_label'] = kmeans.fit_predict(X[X.columns[1:3]])
-    centers = kmeans.cluster_centers_
-    labels = kmeans.predict(X[X.columns[1:3]])
+    # Performing k-means clustering based on direct distance between two coordinates
+    kmeans = KMeans(n_clusters=cluster_count, init='k-means++')
+    kmeans.fit(source_pincode_df[source_pincode_df.columns[1:3]])
+    source_pincode_df['cluster_label'] = kmeans.fit_predict(source_pincode_df[source_pincode_df.columns[1:3]])
 
-    cluster_output = open("output/clusters.csv", "w")
-    cluster_output_writer = csv.writer(cluster_output)
-    cluster_output_writer.writerow(["clusterName"])
-    for c in set(labels):
-        cluster_output_writer.writerow([c])
-    cluster_output.close()
+    cluster_centers = kmeans.cluster_centers_
+    cluster_labels = kmeans.predict(source_pincode_df[source_pincode_df.columns[1:3]])
 
-    cluster_def_output = open("output/cluster_definition.csv", "w")
-    cluster_def_output_writer = csv.writer(cluster_def_output)
-    cluster_def_output_writer.writerow(["clusterName", "locationName"])
-    for index, row in X.iterrows():
-        cluster_def_output_writer.writerow([row["cluster_label"], row['wh']])
-    cluster_def_output.close()
+    # Generating csvs to be used for uploading in Assure
+    save_clusters_to_csv(cluster_labels)
+    save_cluster_definitions_to_csv(source_pincode_df)
 
-    X.plot.scatter(x='lon', y='lat', c=labels, s=5, cmap='gist_rainbow')
-    plt.scatter(centers[:, 1], centers[:, 0], c='black', s=20, alpha=0.5)
-    plt.xlabel("longitude")
-    plt.ylabel("latitude")
+    plot_cluster_graph(cluster_centers, cluster_labels, show_cluster_graph, source_pincode_df)
+    return source_pincode_df, cluster_centers
+
+
+def plot_cluster_graph(cluster_centers, cluster_labels, show_clusters, source_pincode_df):
+    source_pincode_df.plot.scatter(x='lon', y='lat', c=cluster_labels, s=5, cmap='gist_rainbow')
+    plt.scatter(cluster_centers[:, 1], cluster_centers[:, 0], c='black', s=20, alpha=0.5)
     plt.title("Warehouse-cluster distribution", fontsize=15)
+    plt.xlabel("latitude")
+    plt.ylabel("longitude")
 
-    for i, c in enumerate(centers):
+    # Annotating cluster centers with their names
+    for i, c in enumerate(cluster_centers):
         plt.annotate(str(i), (c[1], c[0]))
 
     if show_clusters: plt.show()
-    return X, centers
+
+
+def save_cluster_definitions_to_csv(source_pincode_df):
+    cluster_definition_output = open("output/cluster_definition.csv", "w")
+    cluster_definition_output_writer = csv.writer(cluster_definition_output)
+    cluster_definition_output_writer.writerow(["clusterName", "locationName"])
+    for index, row in source_pincode_df.iterrows():
+        cluster_definition_output_writer.writerow([row["cluster_label"], row['wh']])
+    cluster_definition_output.close()
+
+
+def save_clusters_to_csv(labels):
+    cluster_output_file = open("output/clusters.csv", "w")
+    cluster_output_writer = csv.writer(cluster_output_file)
+    cluster_output_writer.writerow(["clusterName"])
+    for c in set(labels):
+        cluster_output_writer.writerow([c])
+    cluster_output_file.close()
 
 
 def get_area_cluster_mappings(cluster_data, centers):
@@ -122,37 +144,46 @@ def get_area_cluster_mappings(cluster_data, centers):
     for index, row in cluster_data.iterrows():
         cluster_groups[row["cluster_label"]].append((row['lat'], row['lon']))
 
-    dest_pincodes = open("data/destination_pincodes.csv", "r")
-    dest_pincodes_reader = csv.reader(dest_pincodes)
+    destination_pincode_file = open("data/destination_pincodes.csv", "r")
+    destination_pincode_reader = csv.reader(destination_pincode_file)
 
     pincode_cluster_map = defaultdict(list)
 
-    next(dest_pincodes_reader, None)
+    next(destination_pincode_reader, None)
     pincode_cluster_avg_distance_map = defaultdict(list)
-    for destination in dest_pincodes_reader:
+    for destination in tqdm(destination_pincode_reader, desc='Processing:'):
         destination_pincode = destination[0]
-        destination_coords = (destination[1], destination[2])
+        destination_coordinates = (destination[1], destination[2])
 
-        distance_matrix = defaultdict(dict)
-        for source_cluster in cluster_groups:
-            min_distance = geopy.distance.geodesic(cluster_centers[source_cluster], destination_coords).km
-            distance_matrix[destination_pincode][source_cluster] = min_distance
-            pincode_cluster_avg_distance_map[destination_pincode].append(
-                (source_cluster, distance_matrix[destination_pincode][source_cluster]))
+        get_distance_matrix(cluster_centers, cluster_groups, destination_coordinates, destination_pincode,
+                            pincode_cluster_avg_distance_map)
 
     for x in pincode_cluster_avg_distance_map:
-        pincode_cluster_avg_distance_map[x] = sorted(pincode_cluster_avg_distance_map[x], key=lambda x: x[1])
-
-    for x in pincode_cluster_avg_distance_map:
+        pincode_cluster_avg_distance_map[x] = sorted(pincode_cluster_avg_distance_map[x], key=lambda e: e[1])
         pincode_cluster_map[x] = [c[0] for c in pincode_cluster_avg_distance_map[x]][:5]
 
+    save_area_cluster_mapping_to_csv(pincode_cluster_map)
+
+    return pincode_cluster_map
+
+
+def save_area_cluster_mapping_to_csv(pincode_cluster_map):
     mapping_output = open("output/area_cluster_mapping.csv", "w")
     mapping_output_writer = csv.writer(mapping_output)
     mapping_output_writer.writerow(["areaCodePrefix", "cluster1", "cluster2", "cluster3", "cluster4", "cluster5"])
-    for k in pincode_cluster_map: mapping_output_writer.writerow([k] + pincode_cluster_map[k])
+    for pin in pincode_cluster_map:
+        mapping_output_writer.writerow([pin] + pincode_cluster_map[pin])
     mapping_output.close()
 
-    return pincode_cluster_map
+
+def get_distance_matrix(cluster_centers, cluster_groups, destination_coords, destination_pincode,
+                        pincode_cluster_avg_distance_map):
+    distance_matrix = defaultdict(dict)
+    for source_cluster in cluster_groups:
+        min_distance = geopy.distance.geodesic(cluster_centers[source_cluster], destination_coords).km
+        distance_matrix[destination_pincode][source_cluster] = min_distance
+        pincode_cluster_avg_distance_map[destination_pincode].append(
+            (source_cluster, distance_matrix[destination_pincode][source_cluster]))
 
 
 def get_pincode_coord_map():
@@ -167,19 +198,19 @@ def get_pincode_coord_map():
 def main():
     start_time = time.time()
 
-    is_test_run = True
+    is_test_run = False
     source_count, destination_count = 2000, 2000
 
-    cluster_count = 10
-    show_clusters = False
+    cluster_count = 2
+    show_clusters = True
 
     if is_test_run:
         generate_random_sources(source_count)
         generate_random_destinations(destination_count)
     else:
         pincode_coord_map = get_pincode_coord_map()
-        generate_source_coords(pincode_coord_map)
-        generate_destn_coords(pincode_coord_map)
+        generate_source_coordinates(pincode_coord_map)
+        generate_destination_coords(pincode_coord_map)
 
     print("Clustering ...")
     cluster_data, centers = cluster(cluster_count, show_clusters)
