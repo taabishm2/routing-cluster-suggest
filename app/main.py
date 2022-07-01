@@ -1,22 +1,64 @@
 import csv
 import random
 import time
-import itertools
-from collections import defaultdict
-from tqdm import tqdm
-
 import geopy.distance
+import matplotlib
 import matplotlib.pyplot as plt
 import pandas as pd
+import codecs
+import os
+import zipfile
+import io
+
+from collections import defaultdict
+from tqdm import tqdm
 from sklearn.cluster import KMeans
-from fastapi import FastAPI
+from fastapi import FastAPI, File, UploadFile, HTTPException, Response
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
+origins = ['*']
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+matplotlib.pyplot.switch_backend('Agg')
 
 
-@app.get("/")
-async def root():
-    return {"message": "Hello World"}
+@app.post("/suggest-clusters", status_code=201)
+async def root(api_key: str, sources: UploadFile = File(...), serviceable: UploadFile = File(...)):
+    if api_key != "a6f3b3":
+        raise HTTPException(status_code=401, detail="Request Unauthorized")
+
+    try:
+        main(sources, serviceable)
+        return get_zipped_files()
+    except Exception as e:
+        print("Errors Encountered!")
+        f = open("routing-suggest-error.csv", "w")
+        f.write(str(e))
+        f.close()
+
+
+def get_zipped_files():
+    filenames = ["output/clustered.png", "output/clusters.csv", "output/cluster_definition.csv", "output/area_cluster_mapping.csv"]
+    output_zip_name = "suggested_clusters.zip"
+
+    io_bytes = io.BytesIO()
+    zip_file = zipfile.ZipFile(io_bytes, "w")
+
+    for fpath in filenames:
+        file_dir, file_name = os.path.split(fpath)
+        zip_file.write(fpath, file_name)
+    zip_file.close()
+    response_zip = Response(io_bytes.getvalue(), media_type="application/x-zip-compressed", headers={
+        'Content-Disposition': f'attachment;filename={output_zip_name}'
+    })
+
+    return response_zip
 
 
 # Test function to generate source pin-codes randomly
@@ -54,9 +96,8 @@ def generate_random_destinations(count):
 
 
 # Add locations in /uploads/sources.csv with format (warehouse_name, pincode)
-def generate_source_coordinates(pincode_coord_map):
-    uploaded_sources_file = open('uploads/sources.csv')
-    sources_file_reader = csv.reader(uploaded_sources_file)
+def generate_source_coordinates(pincode_coord_map, uploaded_sources_file):
+    sources_file_reader = csv.reader(codecs.iterdecode(uploaded_sources_file.file, 'utf-8'))
 
     output_sources_file = open('data/source_pincodes.csv', 'w')
     output_file_writer = csv.writer(output_sources_file)
@@ -69,9 +110,8 @@ def generate_source_coordinates(pincode_coord_map):
 
 
 # Add serviceable pincodes in /uploads/serviceable.csv with format (pincode)
-def generate_destination_coords(pincode_coord_map):
-    uploaded_destinations_file = open('uploads/serviceable.csv')
-    destinations_file_reader = csv.reader(uploaded_destinations_file)
+def generate_destination_coords(pincode_coord_map, uploaded_destinations_file):
+    destinations_file_reader = csv.reader(codecs.iterdecode(uploaded_destinations_file.file, 'utf-8'))
 
     output_destinations_file = open('data/destination_pincodes.csv', 'w')
     destinations_file_writer = csv.writer(output_destinations_file)
@@ -114,7 +154,7 @@ def plot_cluster_graph(cluster_centers, cluster_labels, show_clusters, source_pi
     for i, c in enumerate(cluster_centers):
         plt.annotate(str(i), (c[1], c[0]))
 
-    if show_clusters: plt.show()
+    if show_clusters: plt.savefig("output/clustered.png", dpi=1000)
 
 
 def save_cluster_definitions_to_csv(source_pincode_df):
@@ -195,29 +235,25 @@ def get_pincode_coord_map():
     return coord_map
 
 
-def main():
+def main(sources, serviceable):
     start_time = time.time()
 
     is_test_run = False
-    source_count, destination_count = 2000, 2000
+    source_count, destination_count = 10, 10
 
-    cluster_count = 2
-    show_clusters = True
+    cluster_count = 3
 
     if is_test_run:
         generate_random_sources(source_count)
         generate_random_destinations(destination_count)
     else:
         pincode_coord_map = get_pincode_coord_map()
-        generate_source_coordinates(pincode_coord_map)
-        generate_destination_coords(pincode_coord_map)
+        generate_source_coordinates(pincode_coord_map, sources)
+        generate_destination_coords(pincode_coord_map, serviceable)
 
     print("Clustering ...")
-    cluster_data, centers = cluster(cluster_count, show_clusters)
+    cluster_data, centers = cluster(cluster_count, True)
     print("Generating Mappings ...")
     mappings = get_area_cluster_mappings(cluster_data, centers)
 
     print(len(mappings), "mappings generated in", time.time() - start_time, "sec")
-
-
-main()
