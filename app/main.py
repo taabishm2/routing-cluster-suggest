@@ -29,12 +29,12 @@ matplotlib.pyplot.switch_backend('Agg')
 
 
 @app.post("/suggest-clusters", status_code=201)
-async def root(api_key: str, sources: UploadFile = File(...), serviceable: UploadFile = File(...)):
-    if api_key != "a6f3b3":
+async def root(api_key: str, cluster_count: int, sources: UploadFile = File(...), serviceable: UploadFile = File(...)):
+    if api_key != "vk4d56r2enfh":
         raise HTTPException(status_code=401, detail="Request Unauthorized")
 
     try:
-        main(sources, serviceable)
+        main(cluster_count, sources, serviceable)
         return get_zipped_files()
     except Exception as e:
         print("Errors Encountered!")
@@ -235,13 +235,11 @@ def get_pincode_coord_map():
     return coord_map
 
 
-def main(sources, serviceable):
+def main(cluster_count, sources, serviceable):
     start_time = time.time()
 
     is_test_run = False
     source_count, destination_count = 10, 10
-
-    cluster_count = 3
 
     if is_test_run:
         generate_random_sources(source_count)
